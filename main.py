@@ -1,18 +1,15 @@
 import sys
-from tensorflow.python.framework import ops
-from sklearn import preprocessing
 from sklearn.linear_model import enet_path
-from scipy.sparse import spdiags,eye,csc_matrix, diags
+from scipy.sparse import spdiags,eye, diags
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt 
 import tensorflow.keras.backend as K
 import copy
-import pandas as pd
 import csv
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
-from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker,Qt
+from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog
 from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
