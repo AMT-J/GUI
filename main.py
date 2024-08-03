@@ -1,13 +1,10 @@
 import sys
-from tensorflow.python.framework import ops
-from sklearn import preprocessing
 from sklearn.linear_model import enet_path
-from scipy.sparse import spdiags,eye,csc_matrix, diags
+from scipy.sparse import spdiags,eye, diags
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt 
 import tensorflow.keras.backend as K
 import copy
-import pandas as pd
 import csv
 import tensorflow as tf
 import numpy as np
@@ -230,6 +227,7 @@ class TrainingApp(QWidget):
         self.initUI()
         self.train_thread = None
         self.datafile1 = None
+
     def initUI(self):
         self.setWindowTitle('Raman App')
 
@@ -252,6 +250,17 @@ class TrainingApp(QWidget):
 
         for input in [self.batch_size_input,self.epochs_input]:
             input.setFixedHeight(self.height()//10)
+            input.setStyleSheet("""
+                QLineEdit {
+                    border: 2px solid #003366;  /* 默认边框颜色 */
+                    border-radius: 10px;
+                    background-color: #F5F5F5;  /* 默认背景颜色 */
+                }
+                QLineEdit:hover {
+                    border: 2px solid #00BFFF;  /* 鼠标悬停时边框颜色 */
+                    background-color: #FFFFFF;  /* 鼠标悬停时背景颜色 */
+                }
+            """)
         
         # Set input font
         font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
@@ -272,11 +281,13 @@ class TrainingApp(QWidget):
         # Set the width of the buttons
         for button in [self.start_button, self.stop_button, self.test_button,self.load_file_button]:
             button.setFixedHeight(self.height() // 10)
+            button.setStyleSheet("""QPushButton { border-radius: 10px; border: 1px solid gray; }
+                                 QPushButton:hover {background-color: #E0FFFF; }""")
             
         
 
         # Set button font
-        font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
+        font = QFont('Segoe UI', 12, QFont.Bold,italic=True)
         self.start_button.setFont(font)
         self.stop_button.setFont(font)
         self.load_file_button.setFont(font)
@@ -297,14 +308,34 @@ class TrainingApp(QWidget):
         # Output window
         self.output_window = QTextEdit()
         self.output_window.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.output_window.setStyleSheet("""
+                QTextEdit {
+                    border-radius: 10px;
+                    border: 3px solid black;
+                    background-color: transparent;
+                    padding: 5px;
+                }
+            """)
+        self.output_window.setReadOnly(True)
         # Set the font for the output window
-        output_font = QFont('Segoe UI', 12, QFont.Normal)
+        output_font = QFont('Segoe UI', 12, QFont.Bold)
         self.output_window.setFont(output_font)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #4CAF50;  
+                border-radius: 10px;        
+                background: #FFFFFF;                           
+                padding: 1px;               
+            }
+            QProgressBar::chunk {
+                background: #4CAF50;        
+                border-radius: 10px;                        
+            }
+        """)
         # Custom text at the bottom
         self.custom_text = QLabel("Designer by CJLU")
         
@@ -320,7 +351,7 @@ class TrainingApp(QWidget):
         main_layout.addLayout(bottom_layout)
 
         self.setLayout(main_layout)
-
+        
         # Resize and center the window
         screen_size = QApplication.primaryScreen().size()
         width, height = screen_size.width() // 2, screen_size.height() // 2
@@ -333,7 +364,6 @@ class TrainingApp(QWidget):
         except ValueError:
             self.update_output_window("Error: Batch Size and Epochs must be integers.")
             return
-
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
         self.test_button.setEnabled(False)
@@ -605,4 +635,3 @@ if __name__ == '__main__':
     training_app = TrainingApp()
     training_app.show()
     sys.exit(app.exec_())
-
