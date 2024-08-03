@@ -337,7 +337,7 @@ class TrainingApp(QWidget):
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
         self.test_button.setEnabled(False)
-        self.load_file_button.setEnalbed(False)
+        self.load_file_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
