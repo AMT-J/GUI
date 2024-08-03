@@ -13,7 +13,7 @@ import tensorflow as tf
 import numpy as np
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog
 from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
@@ -229,7 +229,7 @@ class TrainingApp(QWidget):
         super().__init__()
         self.initUI()
         self.train_thread = None
-
+        self.datafile1 = None
     def initUI(self):
         self.setWindowTitle('Raman App')
 
@@ -265,25 +265,34 @@ class TrainingApp(QWidget):
         # Buttons
         self.start_button = QPushButton('Start Training')
         self.stop_button = QPushButton('Stop Training')
+        self.load_file_button=QPushButton("Load File")
         self.test_button = QPushButton('Test')
+        
 
         # Set the width of the buttons
-        for button in [self.start_button, self.stop_button, self.test_button]:
+        for button in [self.start_button, self.stop_button, self.test_button,self.load_file_button]:
             button.setFixedHeight(self.height() // 10)
+            
+        
 
         # Set button font
         font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
         self.start_button.setFont(font)
         self.stop_button.setFont(font)
+        self.load_file_button.setFont(font)
         self.test_button.setFont(font)
+        
 
         self.start_button.clicked.connect(self.start_training)
         self.stop_button.clicked.connect(self.stop_training)
+        self.load_file_button.clicked.connect(self.load_file)
         self.test_button.clicked.connect(self.test_function)
-
+        
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.stop_button)
+        button_layout.addWidget(self.load_file_button)
         button_layout.addWidget(self.test_button)
+        
 
         # Output window
         self.output_window = QTextEdit()
@@ -328,6 +337,7 @@ class TrainingApp(QWidget):
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
         self.test_button.setEnabled(False)
+        self.load_file_button.setEnalbed(False)
         self.stop_button.setEnabled(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
@@ -343,6 +353,7 @@ class TrainingApp(QWidget):
             # Re-enable the Start button and disable the Stop button
             self.start_button.setEnabled(True)
             self.test_button.setEnabled(True)
+            self.load_file_button.setEnabled(True)
             self.stop_button.setEnabled(False)
 
     def update_output_window(self, text):
@@ -357,6 +368,7 @@ class TrainingApp(QWidget):
         # Re-enable the Start button and disable the Stop button
         self.start_button.setEnabled(True)
         self.test_button.setEnabled(True)
+        self.load_file_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         
         self.plot_training_history(history)
@@ -385,7 +397,18 @@ class TrainingApp(QWidget):
         plt.tight_layout()
         plt.show()
 
+    def load_file(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Numpy Files (*.npy);;All Files (*)", options=options)
+        if file_name:
+            self.datafile1 = file_name
+            self.update_output_window(f"File loaded: {file_name}")
+
     def test_function(self):
+        if self.datafile1 is None:
+            self.update_output_window("Error: No file loaded. Please load a file first.")
+            return
+        datafile1 = self.datafile1
         
         class SpatialPyramidPooling(Layer):
             def __init__(self, pool_list, **kwargs):
@@ -469,20 +492,24 @@ class TrainingApp(QWidget):
         datafile0 = './data/database_for_Liquid_and_powder_mixture.npy'
         spectrum_pure = np.load(datafile0)
         
-        datafile1 = './data/unknown_Liquid_and_powder_mixture.npy'
+        #datafile1 = './data/unknown_Liquid_and_powder_mixture.npy'
         spectrum_mix = np.load(datafile1)
         
         csv_reader = csv.reader(open('./data/database_for_Liquid_and_powder_mixture.csv', encoding='utf-8'))
         DBcoms = [row for row in csv_reader]
 
-        spectrum_pure_sc = copy.deepcopy(spectrum_pure)
-        spectrum_mix_sc = copy.deepcopy(spectrum_mix)
-        for i in range(spectrum_mix.shape[0]):
-            spectrum_mix_sc[i, :] = spectrum_mix[i, :] / np.max(spectrum_mix[i, :])
-        for i in range(spectrum_pure.shape[0]):
-            spectrum_pure_sc[i, :] = spectrum_pure[i, :] / np.max(spectrum_pure[i, :])
+        num_features = min(spectrum_pure.shape[1], spectrum_mix.shape[1])
 
-        X = np.zeros((spectrum_mix_sc.shape[0] * spectrum_pure_sc.shape[0], 2, 881, 1))
+        # Trim both datasets to the minimum number of features
+        spectrum_pure = spectrum_pure[:, :num_features]
+        spectrum_mix = spectrum_mix[:, :num_features]
+
+        # Proceed with normalization
+        spectrum_pure_sc = spectrum_pure / np.max(spectrum_pure, axis=1, keepdims=True)
+        spectrum_mix_sc = spectrum_mix / np.max(spectrum_mix, axis=1, keepdims=True)
+
+        # Initialize X with the aligned feature size
+        X = np.zeros((spectrum_mix_sc.shape[0] * spectrum_pure_sc.shape[0], 2, num_features, 1))
 
         for p in range(spectrum_mix_sc.shape[0]):
             for q in range(spectrum_pure_sc.shape[0]):
