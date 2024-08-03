@@ -7,6 +7,7 @@ from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt 
 import tensorflow.keras.backend as K
 import copy
+import pandas as pd
 import csv
 import tensorflow as tf
 import numpy as np
@@ -326,6 +327,7 @@ class TrainingApp(QWidget):
 
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
+        self.test_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
@@ -340,6 +342,7 @@ class TrainingApp(QWidget):
             self.train_thread.stop()
             # Re-enable the Start button and disable the Stop button
             self.start_button.setEnabled(True)
+            self.test_button.setEnabled(True)
             self.stop_button.setEnabled(False)
 
     def update_output_window(self, text):
@@ -353,6 +356,7 @@ class TrainingApp(QWidget):
     def on_training_complete(self, history):
         # Re-enable the Start button and disable the Stop button
         self.start_button.setEnabled(True)
+        self.test_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         
         self.plot_training_history(history)
@@ -382,7 +386,7 @@ class TrainingApp(QWidget):
         plt.show()
 
     def test_function(self):
-
+        
         class SpatialPyramidPooling(Layer):
             def __init__(self, pool_list, **kwargs):
                 super().__init__(**kwargs)
@@ -539,10 +543,10 @@ class TrainingApp(QWidget):
                 sizes, 
                 autopct='%1.1f%%', 
                 startangle=140,
-                textprops={'fontsize': 14}  # Increase font size for percentages
+                textprops={'fontsize': 12}  # Increase font size for percentages
             )
             axs[i].axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-            axs[i].set_title(f'Spectrum {i}', fontsize=16)  # Increase font size for the title
+            axs[i].set_title(f'Spectrum {i}', fontsize=12)  # Increase font size for the title
             
             # Set font size for legend
             axs[i].legend(
@@ -551,7 +555,7 @@ class TrainingApp(QWidget):
                 title="Components", 
                 loc="center left", 
                 bbox_to_anchor=(1, 0, 0.5, 1),
-                fontsize=12  # Increase font size for legend
+                fontsize=12 # Increase font size for legend
             )
 
         # Remove empty subplots
