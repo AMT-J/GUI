@@ -8,3 +8,4 @@ scikit_learn==0.24.2
 seaborn==0.11.2
 pyqt6
 pyqt6-tools
+

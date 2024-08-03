@@ -1,11 +1,19 @@
 import sys
+from tensorflow.python.framework import ops
+from sklearn import preprocessing
+from sklearn.linear_model import enet_path
+from scipy.sparse import spdiags,eye,csc_matrix, diags
+from scipy.sparse.linalg import spsolve
+import matplotlib.pyplot as plt 
+import tensorflow.keras.backend as K
+import copy
+import csv
 import tensorflow as tf
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy
-from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout
+from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 # Set TensorFlow logging level to ERROR to suppress warnings
@@ -223,39 +231,85 @@ class TrainingApp(QWidget):
 
     def initUI(self):
         self.setWindowTitle('Raman App')
-        
+
         # Set window icon
         self.setWindowIcon(QIcon('1.ico'))
-        layout = QVBoxLayout()
-        self.setLayout(layout)
 
-        # Add input fields for batch size and epochs
+        # Create layout
+        main_layout = QVBoxLayout()
+        form_layout = QGridLayout()
+        button_layout = QHBoxLayout()
+        bottom_layout = QVBoxLayout()
+
+        # Input fields
         self.batch_size_input = QLineEdit()
         self.batch_size_input.setPlaceholderText('Batch Size')
-        layout.addWidget(self.batch_size_input)
 
+    
         self.epochs_input = QLineEdit()
         self.epochs_input.setPlaceholderText('Epochs')
-        layout.addWidget(self.epochs_input)
 
+        for input in [self.batch_size_input,self.epochs_input]:
+            input.setFixedHeight(self.height()//10)
+        
+        # Set input font
+        font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
+        self.batch_size_input.setFont(font)
+        self.epochs_input.setFont(font)
+
+        form_layout.addWidget(self.batch_size_input, 0, 0)
+        form_layout.addWidget(self.epochs_input, 0, 1)
+        
+
+        # Buttons
         self.start_button = QPushButton('Start Training')
-        self.start_button.clicked.connect(self.start_training)
-        layout.addWidget(self.start_button)
-
         self.stop_button = QPushButton('Stop Training')
+        self.test_button = QPushButton('Test')
+
+        # Set the width of the buttons
+        for button in [self.start_button, self.stop_button, self.test_button]:
+            button.setFixedHeight(self.height() // 10)
+
+        # Set button font
+        font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
+        self.start_button.setFont(font)
+        self.stop_button.setFont(font)
+        self.test_button.setFont(font)
+
+        self.start_button.clicked.connect(self.start_training)
         self.stop_button.clicked.connect(self.stop_training)
-        layout.addWidget(self.stop_button)
+        self.test_button.clicked.connect(self.test_function)
 
+        button_layout.addWidget(self.start_button)
+        button_layout.addWidget(self.stop_button)
+        button_layout.addWidget(self.test_button)
+
+        # Output window
         self.output_window = QTextEdit()
-        layout.addWidget(self.output_window)
+        self.output_window.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Set the font for the output window
+        output_font = QFont('Segoe UI', 12, QFont.Normal)
+        self.output_window.setFont(output_font)
 
+        # Progress bar
         self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar)
+        self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        # Add loading indicator
-        self.loading_label = QLabel("Training in progress...")
-        self.loading_label.setVisible(False)  # Initially hidden
-        layout.addWidget(self.loading_label)
+        # Custom text at the bottom
+        self.custom_text = QLabel("Designer by CJLU")
+        
+        font=QFont('Comic Sans MS',10,QFont.Medium,italic=True)
+        self.custom_text.setFont(font)
+
+        # Add widgets to layouts
+        main_layout.addLayout(form_layout)
+        main_layout.addLayout(button_layout)
+        main_layout.addWidget(self.output_window)
+        main_layout.addWidget(self.progress_bar)
+        bottom_layout.addWidget(self.custom_text)
+        main_layout.addLayout(bottom_layout)
+
+        self.setLayout(main_layout)
 
         # Resize and center the window
         screen_size = QApplication.primaryScreen().size()
@@ -273,7 +327,6 @@ class TrainingApp(QWidget):
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.loading_label.setVisible(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
         self.train_thread.update_output.connect(self.update_output_window)
@@ -285,30 +338,30 @@ class TrainingApp(QWidget):
     def stop_training(self):
         if self.train_thread:
             self.train_thread.stop()
-            # Re-enable the Start button and disable the Stop button, and hide the loading indicator
+            # Re-enable the Start button and disable the Stop button
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
-            self.loading_label.setVisible(False)
 
     def update_output_window(self, text):
         self.output_window.append(text)
+         # Scroll to the end
+        self.output_window.moveCursor(QTextCursor.End)
 
     def update_progress_bar(self, value):
         self.progress_bar.setValue(value)
 
     def on_training_complete(self, history):
-        # Re-enable the Start button, disable the Stop button, and hide the loading indicator
+        # Re-enable the Start button and disable the Stop button
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        self.loading_label.setVisible(False)
         
         self.plot_training_history(history)
 
     def plot_training_history(self, history):
         QApplication.processEvents()
-        
+
         plt.figure(figsize=(12, 6))
-        
+
         plt.subplot(1, 2, 1)
         plt.plot(history['loss'], label='Train Loss', color='b')
         plt.plot(history['val_loss'], label='Validation Loss', color='r')
@@ -316,7 +369,7 @@ class TrainingApp(QWidget):
         plt.ylabel('Loss')
         plt.legend()
         plt.title('Loss')
-        
+
         plt.subplot(1, 2, 2)
         plt.plot(history['accuracy'], label='Train Accuracy', color='b')
         plt.plot(history['val_accuracy'], label='Validation Accuracy', color='r')
@@ -324,12 +377,201 @@ class TrainingApp(QWidget):
         plt.ylabel('Accuracy')
         plt.legend()
         plt.title('Accuracy')
-        
+
         plt.tight_layout()
         plt.show()
+
+    def test_function(self):
+
+        class SpatialPyramidPooling(Layer):
+            def __init__(self, pool_list, **kwargs):
+                super().__init__(**kwargs)
+                self.pool_list = pool_list
+                self.num_outputs_per_channel = sum([i * i for i in pool_list])
+
+            def build(self, input_shape):
+                self.nb_channels = input_shape[-1]
+
+            def compute_output_shape(self, input_shape):
+                return (input_shape[0], self.nb_channels * self.num_outputs_per_channel)
+
+            def call(self, x):
+                input_shape = tf.shape(x)
+                num_rows = input_shape[1]
+                num_cols = input_shape[2]
+
+                row_length = [tf.cast(num_rows, 'float32') / i for i in self.pool_list]
+                col_length = [tf.cast(num_cols, 'float32') / i for i in self.pool_list]
+
+                outputs = []
+                for pool_num, num_pool_regions in enumerate(self.pool_list):
+                    for ix in range(num_pool_regions):
+                        for iy in range(num_pool_regions):
+                            x1 = ix * col_length[pool_num]
+                            x2 = ix * col_length[pool_num] + col_length[pool_num]
+                            y1 = iy * row_length[pool_num]
+                            y2 = iy * row_length[pool_num] + row_length[pool_num]
+
+                            x1 = tf.cast(tf.round(x1), 'int32')
+                            x2 = tf.cast(tf.round(x2), 'int32')
+                            y1 = tf.cast(tf.round(y1), 'int32')
+                            y2 = tf.cast(tf.round(y2), 'int32')
+
+                            x_crop = x[:, y1:y2, x1:x2, :]
+                            pooled_val = tf.reduce_max(x_crop, axis=(1, 2))
+                            outputs.append(pooled_val)
+
+                outputs = tf.concat(outputs, axis=-1)
+                return outputs
+
+            def get_config(self):
+                config = super().get_config()
+                config.update({'pool_list': self.pool_list})
+                return config
+
+        def WhittakerSmooth(x, lamb, w):
+            m = w.shape[0]
+            W = spdiags(w, 0, m, m)
+            D = eye(m - 1, m, 1) - eye(m - 1, m)
+            return spsolve((W + lamb * D.transpose() * D), w * x)
+        
+        def airPLS(x, lamb=10, itermax=10):
+            m = x.shape[0]
+            w = np.ones(m)
+            for i in range(itermax):
+                z = WhittakerSmooth(x, lamb, w)
+                d = x - z
+                if sum(abs(d[d < 0])) < 0.001 * sum(abs(x)):
+                    break
+                w[d < 0] = np.exp(i * d[d < 0] / sum(d[d < 0]))
+                w[d >= 0] = 0
+            return z
+
+        def airPLS_MAT(X, lamb=10, itermax=10):
+            B = X.copy()
+            for i in range(X.shape[0]):
+                B[i, :] = airPLS(X[i, :], lamb, itermax)
+            return X - B
+
+        def WhittakerSmooth_MAT(X, lamb=1):
+            C = X.copy()
+            w = np.ones(X.shape[1])
+            for i in range(X.shape[0]):
+                C[i, :] = WhittakerSmooth(X[i, :], lamb, w)
+            return C
+
+        _custom_objects = {"SpatialPyramidPooling": SpatialPyramidPooling}
+
+        datafile0 = './data/database_for_Liquid_and_powder_mixture.npy'
+        spectrum_pure = np.load(datafile0)
+        
+        datafile1 = './data/unknown_Liquid_and_powder_mixture.npy'
+        spectrum_mix = np.load(datafile1)
+        
+        csv_reader = csv.reader(open('./data/database_for_Liquid_and_powder_mixture.csv', encoding='utf-8'))
+        DBcoms = [row for row in csv_reader]
+
+        spectrum_pure_sc = copy.deepcopy(spectrum_pure)
+        spectrum_mix_sc = copy.deepcopy(spectrum_mix)
+        for i in range(spectrum_mix.shape[0]):
+            spectrum_mix_sc[i, :] = spectrum_mix[i, :] / np.max(spectrum_mix[i, :])
+        for i in range(spectrum_pure.shape[0]):
+            spectrum_pure_sc[i, :] = spectrum_pure[i, :] / np.max(spectrum_pure[i, :])
+
+        X = np.zeros((spectrum_mix_sc.shape[0] * spectrum_pure_sc.shape[0], 2, 881, 1))
+
+        for p in range(spectrum_mix_sc.shape[0]):
+            for q in range(spectrum_pure_sc.shape[0]):
+                X[int(p * spectrum_pure_sc.shape[0] + q), 0, :, 0] = spectrum_mix_sc[p, :]
+                X[int(p * spectrum_pure_sc.shape[0] + q), 1, :, 0] = spectrum_pure_sc[q, :]
+
+        re_model = tf.keras.models.load_model('./model/model.h5', custom_objects=_custom_objects)
+        y = re_model.predict(X)
+
+        spectrum_pure = WhittakerSmooth_MAT(spectrum_pure, lamb=1)
+        spectrum_pure = airPLS_MAT(spectrum_pure, lamb=10, itermax=10)
+        spectrum_mix = WhittakerSmooth_MAT(spectrum_mix, lamb=1)
+        spectrum_mix = airPLS_MAT(spectrum_mix, lamb=10, itermax=10)
+
+        results = []
+        pie_data = []
+
+        for cc in range(spectrum_mix.shape[0]):
+            com = []
+            coms = []
+            ra2 = []
+            for ss in range(cc * spectrum_pure.shape[0], (cc + 1) * spectrum_pure.shape[0]):
+                if y[ss, 1] >= 0.5:
+                    com.append(ss % spectrum_pure.shape[0])
+
+            X = spectrum_pure[com]
+            coms = [DBcoms[com[h]] for h in range(len(com))]
+
+            _, coefs_lasso, _ = enet_path(X.T, spectrum_mix[cc, :], l1_ratio=0.96, positive=True, fit_intercept=False)
+            ratio = coefs_lasso[:, -1]
+            ratio_sc = copy.deepcopy(ratio)
+            
+            for ss2 in range(ratio.shape[0]):
+                ratio_sc[ss2] = ratio[ss2] / np.sum(ratio)
+            
+            result_str = f"The {cc} spectra may contain:"
+            for comp, ratio in zip(coms, ratio_sc):
+                result_str += f"\n   - {comp[0]} : {ratio * 100:.2f}%"
+            results.append(result_str)
+
+            # Collecting data for pie chart
+            labels = [comp[0] for comp in coms]
+            sizes = ratio_sc * 100  # Convert to percentage
+
+            # Filter out the components with size 0%
+            filtered_labels = [labels[i] for i in range(len(sizes)) if sizes[i] > 0]
+            filtered_sizes = [sizes[i] for i in range(len(sizes)) if sizes[i] > 0]
+
+            pie_data.append((filtered_labels, filtered_sizes))
+
+        # Creating subplots
+        num_pie_charts = len(pie_data)
+        fig, axs = plt.subplots(nrows=(num_pie_charts + 1) // 2, ncols=2, figsize=(12, num_pie_charts * 3))
+        axs = axs.flatten()
+
+        for i, (labels, sizes) in enumerate(pie_data):
+            wedges, texts, autotexts = axs[i].pie(
+                sizes, 
+                autopct='%1.1f%%', 
+                startangle=140,
+                textprops={'fontsize': 14}  # Increase font size for percentages
+            )
+            axs[i].axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+            axs[i].set_title(f'Spectrum {i}', fontsize=16)  # Increase font size for the title
+            
+            # Set font size for legend
+            axs[i].legend(
+                wedges, 
+                labels, 
+                title="Components", 
+                loc="center left", 
+                bbox_to_anchor=(1, 0, 0.5, 1),
+                fontsize=12  # Increase font size for legend
+            )
+
+        # Remove empty subplots
+        for j in range(len(pie_data), len(axs)):
+            fig.delaxes(axs[j])
+
+        plt.tight_layout()
+
+        plt.show()
+
+        # Update the output
+        output_text = "\n\n".join(results)
+        self.update_output_window(output_text)
+        self.update_output_window("All pie charts displayed in a single window.")
+
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     training_app = TrainingApp()
     training_app.show()
     sys.exit(app.exec_())
+
