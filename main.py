@@ -337,7 +337,7 @@ class TrainingApp(QWidget):
             }
         """)
         # Custom text at the bottom
-        self.custom_text = QLabel("Designer by CJLU")
+        self.custom_text = QLabel("Designed by CJLU")
         
         font=QFont('Comic Sans MS',10,QFont.Medium,italic=True)
         self.custom_text.setFont(font)
