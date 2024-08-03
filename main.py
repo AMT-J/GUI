@@ -3,10 +3,13 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy
+from PyQt5.QtGui import QIcon
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
+# Set TensorFlow logging level to ERROR to suppress warnings
+tf.get_logger().setLevel('ERROR')
 
 class SpatialPyramidPooling(Layer):
     def __init__(self, pool_list, **kwargs):
@@ -102,10 +105,16 @@ def randomize(dataset, labels):
 
 def reader(dataX, dataY, batch_size):
     steps = dataX.shape[0] // batch_size
+    if dataX.shape[0] % batch_size != 0:
+        steps += 1  # Handle cases where dataset is not divisible by batch_size
     while True:
         for step in range(steps):
-            dataX_batch = dataX[step*batch_size:(step+1)*batch_size]
-            dataY_batch = dataY[step*batch_size:(step+1)*batch_size]
+            start = step * batch_size
+            end = (step + 1) * batch_size
+            if end > dataX.shape[0]:  # Handle last batch case
+                end = dataX.shape[0]
+            dataX_batch = dataX[start:end]
+            dataY_batch = dataY[start:end]
             yield dataX_batch, dataY_batch
 
 def load_data(datapath):
@@ -167,7 +176,6 @@ class TrainThread(QThread):
                 metrics=['accuracy']
             )
 
-            # 只保留 epoch 更新的回调
             class ProgressCallback(tf.keras.callbacks.Callback):
                 def __init__(self, stop_requested, epochs):
                     super().__init__()
@@ -214,8 +222,21 @@ class TrainingApp(QWidget):
         self.train_thread = None
 
     def initUI(self):
+        self.setWindowTitle('Raman App')
+        
+        # Set window icon
+        self.setWindowIcon(QIcon('1.ico'))
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        # Add input fields for batch size and epochs
+        self.batch_size_input = QLineEdit()
+        self.batch_size_input.setPlaceholderText('Batch Size')
+        layout.addWidget(self.batch_size_input)
+
+        self.epochs_input = QLineEdit()
+        self.epochs_input.setPlaceholderText('Epochs')
+        layout.addWidget(self.epochs_input)
 
         self.start_button = QPushButton('Start Training')
         self.start_button.clicked.connect(self.start_training)
@@ -231,20 +252,43 @@ class TrainingApp(QWidget):
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
+        # Add loading indicator
+        self.loading_label = QLabel("Training in progress...")
+        self.loading_label.setVisible(False)  # Initially hidden
+        layout.addWidget(self.loading_label)
+
+        # Resize and center the window
+        screen_size = QApplication.primaryScreen().size()
+        width, height = screen_size.width() // 2, screen_size.height() // 2
+        self.setGeometry((screen_size.width() - width) // 2, (screen_size.height() - height) // 2, width, height)
+
     def start_training(self):
-        batch_size = 50
-        epochs = 10
+        try:
+            batch_size = int(self.batch_size_input.text())
+            epochs = int(self.epochs_input.text())
+        except ValueError:
+            self.update_output_window("Error: Batch Size and Epochs must be integers.")
+            return
+
+        # Disable the Start button, enable the Stop button, and show the loading indicator
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.loading_label.setVisible(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
         self.train_thread.update_output.connect(self.update_output_window)
         self.train_thread.update_progress.connect(self.update_progress_bar)
-        self.train_thread.training_complete.connect(self.plot_training_history)
+        self.train_thread.training_complete.connect(self.on_training_complete)
 
         self.train_thread.start()
 
     def stop_training(self):
         if self.train_thread:
             self.train_thread.stop()
+            # Re-enable the Start button and disable the Stop button, and hide the loading indicator
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.loading_label.setVisible(False)
 
     def update_output_window(self, text):
         self.output_window.append(text)
@@ -252,14 +296,19 @@ class TrainingApp(QWidget):
     def update_progress_bar(self, value):
         self.progress_bar.setValue(value)
 
+    def on_training_complete(self, history):
+        # Re-enable the Start button, disable the Stop button, and hide the loading indicator
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.loading_label.setVisible(False)
+        
+        self.plot_training_history(history)
+
     def plot_training_history(self, history):
-    # 刷新事件循环以确保窗口响应
         QApplication.processEvents()
         
-        # 创建一个图形
         plt.figure(figsize=(12, 6))
         
-        # 绘制损失
         plt.subplot(1, 2, 1)
         plt.plot(history['loss'], label='Train Loss', color='b')
         plt.plot(history['val_loss'], label='Validation Loss', color='r')
@@ -268,7 +317,6 @@ class TrainingApp(QWidget):
         plt.legend()
         plt.title('Loss')
         
-        # 绘制准确度
         plt.subplot(1, 2, 2)
         plt.plot(history['accuracy'], label='Train Accuracy', color='b')
         plt.plot(history['val_accuracy'], label='Validation Accuracy', color='r')
@@ -277,10 +325,8 @@ class TrainingApp(QWidget):
         plt.legend()
         plt.title('Accuracy')
         
-        # 显示图形
         plt.tight_layout()
         plt.show()
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
