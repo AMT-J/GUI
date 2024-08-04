@@ -15,7 +15,9 @@ from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 # Set TensorFlow logging level to ERROR to suppress warnings
+
 tf.get_logger().setLevel('ERROR')
+flag=tf.config.list_physical_devices('GPU')
 
 class SpatialPyramidPooling(Layer):
     def __init__(self, pool_list, **kwargs):
@@ -158,6 +160,9 @@ class TrainThread(QThread):
         self._mutex = QMutex()
 
     def run(self):
+
+        device = '/device:GPU:0' if flag else '/device:CPU:0'
+
         try:
             initial_learning_rate = 0.01
             lr_schedule = ExponentialDecay(
@@ -200,14 +205,16 @@ class TrainThread(QThread):
             progress_callback.update_output = self.update_output
             progress_callback.update_progress = self.update_progress
 
-            history = model.fit(
-                reader(Xtrain, Ytrain, self.batch_size),
-                steps_per_epoch=Xtrain.shape[0] // self.batch_size,
-                epochs=self.epochs,
-                validation_data=reader(Xvalid, Yvalid, self.batch_size),
-                validation_steps=10,
-                callbacks=[progress_callback]
-            )
+            with tf.device(device):
+                history = model.fit(
+                    reader(Xtrain, Ytrain, self.batch_size),
+                    steps_per_epoch=Xtrain.shape[0] // self.batch_size,
+                    epochs=self.epochs,
+                    validation_data=reader(Xvalid, Yvalid, self.batch_size),
+                    validation_steps=10,
+                    callbacks=[progress_callback]
+                )
+
 
             model.save(savepath / 'model.h5')
             del model
@@ -226,6 +233,7 @@ class TrainingApp(QWidget):
         super().__init__()
         self.initUI()
         self.train_thread = None
+        self.detect_device()
         self.datafile1 = None
 
     def initUI(self):
@@ -384,7 +392,20 @@ class TrainingApp(QWidget):
             self.start_button.setEnabled(True)
             self.test_button.setEnabled(True)
             self.load_file_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
+            # Reset the progress bar
+            self.progress_bar.setValue(0)
+
+    def detect_device(self):
+       # Check if GPU is available and set device info accordingly
+        if flag:
+            device_info = "GPU Status: <font color='green'><b>Available</b></font>"
+        else:
+            device_info = "GPU Status: <font color='red'><b>Unavailable</b></font>"
+        
+        # Output the device info to the output window
+        self.output_window.append(device_info)
+        
 
     def update_output_window(self, text):
         self.output_window.append(text)
@@ -402,6 +423,8 @@ class TrainingApp(QWidget):
         self.stop_button.setEnabled(False)
         
         self.plot_training_history(history)
+        # Reset the progress bar
+        self.progress_bar.setValue(0)
 
     def plot_training_history(self, history):
         QApplication.processEvents()
