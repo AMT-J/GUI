@@ -36,24 +36,17 @@ class SpatialPyramidPooling(Layer):
         num_rows = input_shape[1]
         num_cols = input_shape[2]
 
-        row_length = [tf.cast(num_rows, 'float32') / i for i in self.pool_list]
-        col_length = [tf.cast(num_cols, 'float32') / i for i in self.pool_list]
+        # row_length = [tf.cast(num_rows, 'float32') / i for i in self.pool_list]
+        # col_length = [tf.cast(num_cols, 'float32') / i for i in self.pool_list]
 
         outputs = []
-        for pool_num, num_pool_regions in enumerate(self.pool_list):
+        for num_pool_regions in self.pool_list:
+            x1s = tf.cast(tf.round(tf.linspace(0, num_cols, num_pool_regions + 1)), 'int32')
+            y1s = tf.cast(tf.round(tf.linspace(0, num_rows, num_pool_regions + 1)), 'int32')
+
             for ix in range(num_pool_regions):
                 for iy in range(num_pool_regions):
-                    x1 = ix * col_length[pool_num]
-                    x2 = ix * col_length[pool_num] + col_length[pool_num]
-                    y1 = iy * row_length[pool_num]
-                    y2 = iy * row_length[pool_num] + row_length[pool_num]
-
-                    x1 = tf.cast(tf.round(x1), 'int32')
-                    x2 = tf.cast(tf.round(x2), 'int32')
-                    y1 = tf.cast(tf.round(y1), 'int32')
-                    y2 = tf.cast(tf.round(y2), 'int32')
-
-                    x_crop = x[:, y1:y2, x1:x2, :]
+                    x_crop = x[:, y1s[iy]:y1s[iy+1], x1s[ix]:x1s[ix+1], :]
                     pooled_val = tf.reduce_max(x_crop, axis=(1, 2))
                     outputs.append(pooled_val)
 
@@ -71,20 +64,19 @@ def SSPmodel(input_shape):
     inputs = tf.keras.Input(shape=input_shape)
     inputA, inputB = inputs[:, 0, :], inputs[:, 1, :]
 
-    convA1 = tf.keras.layers.Conv1D(32, kernel_size=7, strides=1, padding='same', kernel_initializer='he_normal')(inputA)
-    convA1 = tf.keras.layers.BatchNormalization()(convA1)
-    convA1 = tf.keras.layers.Activation('relu')(convA1)
-    poolA1 = tf.keras.layers.MaxPooling1D(3)(convA1)
+    def conv_block(input_tensor):
+        x = tf.keras.layers.Conv1D(64, kernel_size=7, strides=1, padding='same', kernel_initializer='he_normal')(input_tensor)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Activation('relu')(x)
+        return tf.keras.layers.MaxPooling1D(3)(x)
 
-    convB1 = tf.keras.layers.Conv1D(32, kernel_size=7, strides=1, padding='same', kernel_initializer='he_normal')(inputB)
-    convB1 = tf.keras.layers.BatchNormalization()(convB1)
-    convB1 = tf.keras.layers.Activation('relu')(convB1)
-    poolB1 = tf.keras.layers.MaxPooling1D(3)(convB1)
+    poolA1 = conv_block(inputA)
+    poolB1 = conv_block(inputB)
 
     con = tf.keras.layers.concatenate([poolA1, poolB1], axis=2)
     con = tf.expand_dims(con, -1)
 
-    conv1 = tf.keras.layers.Conv2D(32, kernel_size=(7, 7), strides=(2, 2), padding='same', kernel_initializer='he_normal')(con)
+    conv1 = tf.keras.layers.Conv2D(64, kernel_size=(7, 7), strides=(2, 2), padding='same', kernel_initializer='he_normal')(con)
     conv1 = tf.keras.layers.BatchNormalization()(conv1)
     conv1 = tf.keras.layers.Activation('relu')(conv1)
 
@@ -150,6 +142,7 @@ def process(Xtrain, Ytrain):
 class TrainThread(QThread):
     update_output = pyqtSignal(str)
     update_progress = pyqtSignal(int)
+    update_epoch_metrics = pyqtSignal(float, float) 
     training_complete = pyqtSignal(dict)
 
     def __init__(self, batch_size, epochs, parent=None):
@@ -164,21 +157,31 @@ class TrainThread(QThread):
         device = '/device:GPU:0' if flag else '/device:CPU:0'
 
         try:
-            initial_learning_rate = 0.01
-            lr_schedule = ExponentialDecay(
-                initial_learning_rate=initial_learning_rate,
-                decay_steps=170,
-                decay_rate=0.94,
-                staircase=True
-            )
-
             datapath = Path('./data')
             savepath = Path('./model')
             mkdir(savepath)
 
             Xtrain, Ytrain, Xvalid, Yvalid = load_data(datapath)
-
+            
             tf.keras.backend.clear_session()
+
+            # Calculate the number of steps per epoch
+            steps_per_epoch = Xtrain.shape[0] // self.batch_size
+            if Xtrain.shape[0] % self.batch_size != 0:
+                steps_per_epoch += 1
+
+            # Calculate the total number of steps
+            total_steps = steps_per_epoch * self.epochs
+
+            # Adjust decay_steps based on the total number of steps
+            decay_steps = total_steps
+            initial_learning_rate = 0.01
+            lr_schedule = ExponentialDecay(
+                initial_learning_rate=initial_learning_rate,
+                decay_steps=decay_steps,
+                decay_rate=0.95,
+                staircase=True
+            )
 
             model = SSPmodel((2, None, 1))
             model.compile(
@@ -188,20 +191,28 @@ class TrainThread(QThread):
             )
 
             class ProgressCallback(tf.keras.callbacks.Callback):
-                def __init__(self, stop_requested, epochs):
+                def __init__(self, stop_requested, epochs,update_epoch_metrics):
                     super().__init__()
                     self.stop_requested = stop_requested
                     self.epochs = epochs
-
+                    self.update_epoch_metrics = update_epoch_metrics 
                 def on_epoch_end(self, epoch, logs=None):
                     if self.stop_requested():
                         self.model.stop_training = True
                         return
-                    progress = f"Epoch {epoch + 1}/{self.epochs}"
+                    progress =  f"Epoch {epoch + 1}/{self.epochs} - " \
+                                f"Accuracy: {logs.get('accuracy')*100:.2f}% - " \
+                                f"Val Accuracy: {logs.get('val_accuracy')*100:.2f}%"
+                    
                     self.update_output.emit(progress)
                     self.update_progress.emit(int(((epoch + 1) / self.epochs) * 100))
+                    
 
-            progress_callback = ProgressCallback(lambda: self._stop_requested, self.epochs)
+            progress_callback = ProgressCallback(
+                lambda: self._stop_requested,
+                self.epochs,
+                self.update_epoch_metrics
+            )
             progress_callback.update_output = self.update_output
             progress_callback.update_progress = self.update_progress
 
@@ -215,7 +226,7 @@ class TrainThread(QThread):
                     callbacks=[progress_callback]
                 )
 
-
+            tf.keras.backend.clear_session()
             model.save(savepath / 'model.h5')
             del model
 
@@ -223,6 +234,8 @@ class TrainThread(QThread):
             self.training_complete.emit(history.history)
         except Exception as e:
             self.update_output.emit(f'Error: {e}')
+
+        
 
     def stop(self):
         with QMutexLocker(self._mutex):
@@ -260,13 +273,13 @@ class TrainingApp(QWidget):
             input.setFixedHeight(self.height()//10)
             input.setStyleSheet("""
                 QLineEdit {
-                    border: 2px solid #003366;  /* 默认边框颜色 */
+                    border: 2px solid #003366; 
                     border-radius: 10px;
-                    background-color: #F5F5F5;  /* 默认背景颜色 */
+                    background-color: #F5F5F5;  
                 }
                 QLineEdit:hover {
-                    border: 2px solid #00BFFF;  /* 鼠标悬停时边框颜色 */
-                    background-color: #FFFFFF;  /* 鼠标悬停时背景颜色 */
+                    border: 2px solid #00BFFF;  
+                    background-color: #FFFFFF;  
                 }
             """)
         
@@ -381,6 +394,7 @@ class TrainingApp(QWidget):
         self.train_thread = TrainThread(batch_size, epochs)
         self.train_thread.update_output.connect(self.update_output_window)
         self.train_thread.update_progress.connect(self.update_progress_bar)
+        self.train_thread.update_epoch_metrics.connect(self.update_epoch_metrics)
         self.train_thread.training_complete.connect(self.on_training_complete)
 
         self.train_thread.start()
@@ -414,6 +428,11 @@ class TrainingApp(QWidget):
 
     def update_progress_bar(self, value):
         self.progress_bar.setValue(value)
+
+    def update_epoch_metrics(self, accuracy, val_accuracy):
+        # Format and append epoch metrics to the output window
+        metrics = f"Accuracy: {accuracy*100:.2f}%, Val Accuracy: {val_accuracy*100:.2f}%"
+        self.output_window.append(metrics)
 
     def on_training_complete(self, history):
         # Re-enable the Start button and disable the Stop button
@@ -463,59 +482,13 @@ class TrainingApp(QWidget):
             return
         datafile1 = self.datafile1
         
-        class SpatialPyramidPooling(Layer):
-            def __init__(self, pool_list, **kwargs):
-                super().__init__(**kwargs)
-                self.pool_list = pool_list
-                self.num_outputs_per_channel = sum([i * i for i in pool_list])
-
-            def build(self, input_shape):
-                self.nb_channels = input_shape[-1]
-
-            def compute_output_shape(self, input_shape):
-                return (input_shape[0], self.nb_channels * self.num_outputs_per_channel)
-
-            def call(self, x):
-                input_shape = tf.shape(x)
-                num_rows = input_shape[1]
-                num_cols = input_shape[2]
-
-                row_length = [tf.cast(num_rows, 'float32') / i for i in self.pool_list]
-                col_length = [tf.cast(num_cols, 'float32') / i for i in self.pool_list]
-
-                outputs = []
-                for pool_num, num_pool_regions in enumerate(self.pool_list):
-                    for ix in range(num_pool_regions):
-                        for iy in range(num_pool_regions):
-                            x1 = ix * col_length[pool_num]
-                            x2 = ix * col_length[pool_num] + col_length[pool_num]
-                            y1 = iy * row_length[pool_num]
-                            y2 = iy * row_length[pool_num] + row_length[pool_num]
-
-                            x1 = tf.cast(tf.round(x1), 'int32')
-                            x2 = tf.cast(tf.round(x2), 'int32')
-                            y1 = tf.cast(tf.round(y1), 'int32')
-                            y2 = tf.cast(tf.round(y2), 'int32')
-
-                            x_crop = x[:, y1:y2, x1:x2, :]
-                            pooled_val = tf.reduce_max(x_crop, axis=(1, 2))
-                            outputs.append(pooled_val)
-
-                outputs = tf.concat(outputs, axis=-1)
-                return outputs
-
-            def get_config(self):
-                config = super().get_config()
-                config.update({'pool_list': self.pool_list})
-                return config
-
-        def WhittakerSmooth(x, lamb, w):
+        def WhittakerSmooth(x: np.ndarray, lamb: float , w: np.ndarray) -> np.ndarray:
             m = w.shape[0]
             W = spdiags(w, 0, m, m)
             D = eye(m - 1, m, 1) - eye(m - 1, m)
             return spsolve((W + lamb * D.transpose() * D), w * x)
         
-        def airPLS(x, lamb=10, itermax=10):
+        def airPLS(x: np.ndarray, lamb: float = 10, itermax: int = 10) -> np.ndarray:
             m = x.shape[0]
             w = np.ones(m)
             for i in range(itermax):
@@ -527,13 +500,13 @@ class TrainingApp(QWidget):
                 w[d >= 0] = 0
             return z
 
-        def airPLS_MAT(X, lamb=10, itermax=10):
+        def airPLS_MAT(X: np.ndarray, lamb: float=10, itermax: int = 10)-> np.ndarray:
             B = X.copy()
             for i in range(X.shape[0]):
                 B[i, :] = airPLS(X[i, :], lamb, itermax)
             return X - B
 
-        def WhittakerSmooth_MAT(X, lamb=1):
+        def WhittakerSmooth_MAT(X: np.ndarray , lamb: float = 1) -> np.ndarray:
             C = X.copy()
             w = np.ones(X.shape[1])
             for i in range(X.shape[0]):
@@ -583,7 +556,6 @@ class TrainingApp(QWidget):
         for cc in range(spectrum_mix.shape[0]):
             com = []
             coms = []
-            ra2 = []
             for ss in range(cc * spectrum_pure.shape[0], (cc + 1) * spectrum_pure.shape[0]):
                 if y[ss, 1] >= 0.5:
                     com.append(ss % spectrum_pure.shape[0])
