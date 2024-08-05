@@ -6,16 +6,22 @@ import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 import copy
 import csv
+import io
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog
-from PyQt5.QtGui import QIcon,QTextCursor,QFont
+from PyQt5.QtGui import QIcon,QTextCursor,QFont,QColor
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 # Set TensorFlow logging level to ERROR to suppress warnings
-
+# Ensure sys.stdout and sys.stderr are not None
+if sys.stdout is None:
+    sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8')
+if sys.stderr is None:
+    sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8')
+# Set TensorFlow logging level to ERROR to suppress warnings
 tf.get_logger().setLevel('ERROR')
 flag=tf.config.list_physical_devices('GPU')
 
@@ -151,11 +157,11 @@ class TrainThread(QThread):
         self.epochs = epochs
         self._stop_requested = False
         self._mutex = QMutex()
+        
 
     def run(self):
 
         device = '/device:GPU:0' if flag else '/device:CPU:0'
-
         try:
             datapath = Path('./data')
             savepath = Path('./model')
@@ -248,6 +254,7 @@ class TrainingApp(QWidget):
         self.train_thread = None
         self.detect_device()
         self.datafile1 = None
+        self.progress_bar.setValue(0)
 
     def initUI(self):
         self.setWindowTitle('Raman App')
@@ -350,7 +357,8 @@ class TrainingApp(QWidget):
                 border: 2px solid #4CAF50;  
                 border-radius: 10px;        
                 background: #FFFFFF;                           
-                padding: 1px;               
+                padding: 1px;        
+                text-align: center;       
             }
             QProgressBar::chunk {
                 background: #4CAF50;        
@@ -418,9 +426,9 @@ class TrainingApp(QWidget):
             device_info = "GPU Status: <font color='red'><b>Unavailable</b></font>"
         
         # Output the device info to the output window
-        self.output_window.append(device_info)
-        
-
+        self.update_output_window(device_info)
+        self.output_window.setTextColor(QColor("black"))
+    
     def update_output_window(self, text):
         self.output_window.append(text)
          # Scroll to the end
