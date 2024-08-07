@@ -1,6 +1,6 @@
 import sys
 from sklearn.linear_model import enet_path
-from scipy.sparse import spdiags,eye, diags
+from scipy.sparse import spdiags,eye
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt 
 import tensorflow.keras.backend as K
@@ -479,7 +479,7 @@ class TrainingApp(QWidget):
 
     def load_file(self):
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Numpy Files (*.npy);;All Files (*)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Numpy Files (*.npy)", options=options)
         if file_name:
             self.datafile1 = file_name
             self.update_output_window(f"File loaded: {file_name}")
