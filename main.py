@@ -10,8 +10,9 @@ import io
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
-from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit, QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog
+from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker,Qt
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit,QMessageBox,
+                             QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog,QSlider,QFrame)
 from PyQt5.QtGui import QIcon,QTextCursor,QFont,QColor
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
@@ -247,9 +248,56 @@ class TrainThread(QThread):
         with QMutexLocker(self._mutex):
             self._stop_requested = True
 
+class CustomLineEdit(QLineEdit):
+    def __init__(self, min_value, max_value, slider=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.min_value = min_value
+        self.max_value = max_value
+        self.slider = slider
+
+    def keyPressEvent(self, event):
+        # Allow control keys and digits
+        if event.key() in [Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Left, Qt.Key_Right, Qt.Key_Enter, Qt.Key_Return, Qt.Key_Tab]:
+            super().keyPressEvent(event)
+            if not self.text():  # Check if the input is empty
+                self.set_slider_to_min()
+            return
+
+        if event.text().isdigit():
+            current_text = self.text()
+            new_text = current_text + event.text()
+            
+            try:
+                if int(new_text) > self.max_value:
+                    return  # Ignore input if it exceeds max value
+                elif int(new_text) < self.min_value:
+                    self.setText(str(self.min_value))  # Set to min value
+                    return
+            except ValueError:
+                pass
+
+            super().keyPressEvent(event)
+        else:
+            # Ignore any non-digit input
+            event.ignore()
+
+    def set_slider_to_min(self):
+        if self.slider:
+            self.slider.setValue(self.slider.minimum())
+
+class CustomMessageBox(QMessageBox):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setWindowIcon(QIcon('1.ico')) 
+
 class TrainingApp(QWidget):
     def __init__(self):
         super().__init__()
+        self.min_batch_size = 1
+        self.max_batch_size = 100
+        self.min_epochs = 1
+        self.max_epochs = 1000
+
         self.initUI()
         self.train_thread = None
         self.detect_device()
@@ -268,13 +316,65 @@ class TrainingApp(QWidget):
         button_layout = QHBoxLayout()
         bottom_layout = QVBoxLayout()
 
+        # Add sliders
+        self.batch_size_slider = QSlider(Qt.Horizontal)
+        self.batch_size_slider.setMinimum(1)
+        self.batch_size_slider.setMaximum(100)
+        self.batch_size_slider.setValue(50)
+        self.batch_size_slider.setTickInterval(10)
+        self.batch_size_slider.setSingleStep(10)
+        self.batch_size_slider.setPageStep(10)
+        self.batch_size_slider.setTickPosition(QSlider.TicksBelow)
+        self.batch_size_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #ccc;
+                background: #e1e1e1;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #4a90e2;
+                border: 1px solid #4a90e2;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QSlider::add-page:horizontal {
+                background: #e1e1e1;
+                border: 1px solid #ccc;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QSlider::handle:horizontal {
+                background: #333;
+                border: 1px solid #666;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                margin: -4px 0;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #4a90e2;
+                border: 1px solid #333;
+            }
+        """)
+
+        self.epochs_slider = QSlider(Qt.Horizontal)
+        self.epochs_slider.setMinimum(1)
+        self.epochs_slider.setMaximum(1000)
+        self.epochs_slider.setValue(100)
+        self.epochs_slider.setTickInterval(50)
+        self.epochs_slider.setSingleStep(50)
+        self.epochs_slider.setPageStep(50)
+        self.epochs_slider.setTickPosition(QSlider.TicksBelow)
+        self.epochs_slider.setStyleSheet(self.batch_size_slider.styleSheet())
+        
         # Input fields
-        self.batch_size_input = QLineEdit()
-        self.batch_size_input.setPlaceholderText('Batch Size')
+        self.batch_size_input = CustomLineEdit(self.min_batch_size, self.max_batch_size, slider=self.batch_size_slider)
+        self.batch_size_input.setPlaceholderText(' 批量大小')
 
     
-        self.epochs_input = QLineEdit()
-        self.epochs_input.setPlaceholderText('Epochs')
+        self.epochs_input = CustomLineEdit(self.min_epochs, self.max_epochs, slider=self.epochs_slider)
+        self.epochs_input.setPlaceholderText(' 训练周期')
 
         for input in [self.batch_size_input,self.epochs_input]:
             input.setFixedHeight(self.height()//10)
@@ -291,7 +391,7 @@ class TrainingApp(QWidget):
             """)
         
         # Set input font
-        font = QFont('Segoe UI', 12, QFont.Normal,italic=True)
+        font = QFont('Segoe UI', 12, QFont.Normal)
         self.batch_size_input.setFont(font)
         self.epochs_input.setFont(font)
 
@@ -300,22 +400,36 @@ class TrainingApp(QWidget):
         
 
         # Buttons
-        self.start_button = QPushButton('Start Training')
-        self.stop_button = QPushButton('Stop Training')
-        self.load_file_button=QPushButton("Load File")
-        self.test_button = QPushButton('Test')
+        self.start_button = QPushButton('开始训练')
+        self.stop_button = QPushButton('停止训练')
+        self.load_file_button=QPushButton("加载文件")
+        self.test_button = QPushButton('测试')
+        # Button Icons
+        self.start_button.setIcon(QIcon('start.png'))  
+        self.stop_button.setIcon(QIcon('stop.png'))  
+        self.load_file_button.setIcon(QIcon('load.png'))  
+        self.test_button.setIcon(QIcon('test.png'))  
         
 
         # Set the width of the buttons
         for button in [self.start_button, self.stop_button, self.test_button,self.load_file_button]:
             button.setFixedHeight(self.height() // 10)
-            button.setStyleSheet("""QPushButton { border-radius: 10px; border: 1px solid gray; }
-                                 QPushButton:hover {background-color: #E0FFFF; }""")
+            button.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #4a90e2;
+                        border-radius: 10px; 
+                        border: 1px solid gray; 
+                    }
+                    QPushButton:hover {
+                        background-color: #357ABD; 
+                    }
+                    QPushButton:pressed {
+                        background-color: #2a68a3;
+                    }
+                """)
             
-        
-
         # Set button font
-        font = QFont('Segoe UI', 12, QFont.Bold,italic=True)
+        font = QFont('Segoe UI', 12, QFont.Bold)
         self.start_button.setFont(font)
         self.stop_button.setFont(font)
         self.load_file_button.setFont(font)
@@ -358,7 +472,7 @@ class TrainingApp(QWidget):
                 border-radius: 10px;        
                 background: #FFFFFF;                           
                 padding: 1px;        
-                text-align: center;       
+                text-align: center;     
             }
             QProgressBar::chunk {
                 background: #4CAF50;        
@@ -367,12 +481,30 @@ class TrainingApp(QWidget):
         """)
         # Custom text at the bottom
         self.custom_text = QLabel("Designed by CJLU")
-        
+        self.custom_text.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         font=QFont('Comic Sans MS',10,QFont.Medium,italic=True)
         self.custom_text.setFont(font)
 
+
+        # Connect signals and slots for batch size
+        self.batch_size_slider.valueChanged.connect(self.update_batch_size_input)
+        self.batch_size_input.textChanged.connect(self.update_batch_size_slider)
+
+        # Connect signals and slots for epochs
+        self.epochs_slider.valueChanged.connect(self.update_epochs_input)
+        self.epochs_input.textChanged.connect(self.update_epochs_slider)
+
+        
+
+        # Add sliders and inputs to layout
+        sliders_container = QFrame()
+        sliders_layout = QHBoxLayout(sliders_container)
+        sliders_layout.addWidget(self.batch_size_slider)
+        sliders_layout.addWidget(self.epochs_slider)
+
         # Add widgets to layouts
         main_layout.addLayout(form_layout)
+        main_layout.addWidget(sliders_container)
         main_layout.addLayout(button_layout)
         main_layout.addWidget(self.output_window)
         main_layout.addWidget(self.progress_bar)
@@ -386,13 +518,41 @@ class TrainingApp(QWidget):
         width, height = screen_size.width() // 2, screen_size.height() // 2
         self.setGeometry((screen_size.width() - width) // 2, (screen_size.height() - height) // 2, width, height)
 
+    def update_batch_size_input(self, value):
+        self.batch_size_input.setText(str(value))
+
+    def update_batch_size_slider(self):
+        try:
+            value = int(self.batch_size_input.text())
+            self.batch_size_slider.setValue(value)
+        except ValueError:
+            pass
+
+    def update_epochs_input(self, value):
+        self.epochs_input.setText(str(value))
+
+    def update_epochs_slider(self):
+        try:
+            value = int(self.epochs_input.text())
+            self.epochs_slider.setValue(value)
+        except ValueError:
+            pass
+
     def start_training(self):
         try:
             batch_size = int(self.batch_size_input.text())
             epochs = int(self.epochs_input.text())
         except ValueError:
-            self.update_output_window("Error: Batch Size and Epochs must be integers.")
+            # Create an error message box
+            msg_box = CustomMessageBox()
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setWindowTitle("Input Error")
+            msg_box.setText("Error: Batch Size and Epochs must be integers.")
+            msg_box.setInformativeText("Please ensure that both Batch Size and Epochs are valid integer values.")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
             return
+        
         # Disable the Start button, enable the Stop button, and show the loading indicator
         self.start_button.setEnabled(False)
         self.test_button.setEnabled(False)
@@ -426,9 +586,20 @@ class TrainingApp(QWidget):
             device_info = "GPU Status: <font color='red'><b>Unavailable</b></font>"
         
         # Output the device info to the output window
-        self.update_output_window(device_info)
-        self.output_window.setTextColor(QColor("black"))
-    
+        self.output_window.append(device_info)
+        
+        self.output_window.setStyleSheet("""
+                QTextEdit {
+                    border-radius: 10px;
+                    border: 3px solid black;
+                    background-color: transparent;
+                    padding: 5px;
+                }
+            """)
+        # Set the font for the output window
+        output_font = QFont('Segoe UI', 12, QFont.Bold)
+        self.output_window.setFont(output_font)
+
     def update_output_window(self, text):
         self.output_window.append(text)
          # Scroll to the end
@@ -486,7 +657,14 @@ class TrainingApp(QWidget):
 
     def test_function(self):
         if self.datafile1 is None:
-            self.update_output_window("Error: No file loaded. Please load a file first.")
+            # Create an error message box
+            msg_box = CustomMessageBox()  # Use the custom message box with the icon
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("File Loaded Error")
+            msg_box.setText("Error: No file loaded.")
+            msg_box.setInformativeText("Please load a file first.")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
             return
         datafile1 = self.datafile1
         
