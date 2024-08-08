@@ -12,8 +12,8 @@ import numpy as np
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker,Qt
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QGridLayout, QPushButton, QTextEdit,QMessageBox,
-                             QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog,QSlider,QFrame)
-from PyQt5.QtGui import QIcon,QTextCursor,QFont,QColor
+                             QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog,QSlider,QFrame,QGraphicsDropShadowEffect)
+from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 # Set TensorFlow logging level to ERROR to suppress warnings
@@ -325,16 +325,23 @@ class TrainingApp(QWidget):
         self.batch_size_slider.setSingleStep(10)
         self.batch_size_slider.setPageStep(10)
         self.batch_size_slider.setTickPosition(QSlider.TicksBelow)
+        # Apply shadow effect to slider handle
+        batch_slider_shadow = QGraphicsDropShadowEffect()
+        batch_slider_shadow.setBlurRadius(10)
+        batch_slider_shadow.setOffset(2, 2)
+        batch_slider_shadow.setColor(Qt.black)
+
         self.batch_size_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 border: 1px solid #ccc;
                 background: #e1e1e1;
                 height: 12px;
                 border-radius: 6px;
+                padding: 2px;
             }
             QSlider::sub-page:horizontal {
-                background: #4a90e2;
-                border: 1px solid #4a90e2;
+                background: #ADD8E6;
+                border: 1px solid #ADD8E6;
                 height: 12px;
                 border-radius: 6px;
             }
@@ -350,13 +357,14 @@ class TrainingApp(QWidget):
                 width: 16px;
                 height: 16px;
                 border-radius: 8px;
-                margin: -4px 0;
+                margin: -4px 1px;
             }
             QSlider::handle:horizontal:hover {
-                background: #4a90e2;
+                background: #ADD8E6;
                 border: 1px solid #333;
             }
         """)
+        self.batch_size_slider.setGraphicsEffect(batch_slider_shadow)
 
         self.epochs_slider = QSlider(Qt.Horizontal)
         self.epochs_slider.setMinimum(1)
@@ -366,8 +374,15 @@ class TrainingApp(QWidget):
         self.epochs_slider.setSingleStep(50)
         self.epochs_slider.setPageStep(50)
         self.epochs_slider.setTickPosition(QSlider.TicksBelow)
-        self.epochs_slider.setStyleSheet(self.batch_size_slider.styleSheet())
+
+        epochs_slider_shadow = QGraphicsDropShadowEffect()
+        epochs_slider_shadow.setBlurRadius(10)
+        epochs_slider_shadow.setOffset(2, 2)
+        epochs_slider_shadow.setColor(Qt.black)
         
+        self.epochs_slider.setStyleSheet(self.batch_size_slider.styleSheet())
+
+        self.epochs_slider.setGraphicsEffect(epochs_slider_shadow)
         # Input fields
         self.batch_size_input = CustomLineEdit(self.min_batch_size, self.max_batch_size, slider=self.batch_size_slider)
         self.batch_size_input.setPlaceholderText(' 批量大小')
@@ -380,21 +395,28 @@ class TrainingApp(QWidget):
             input.setFixedHeight(self.height()//10)
             input.setStyleSheet("""
                 QLineEdit {
-                    border: 2px solid #003366; 
+                    border: 2px solid #ADD8E6;
                     border-radius: 10px;
                     background-color: #F5F5F5;  
+                    padding: 5px;
+                    color: #333;
+                    font-size: 24px;
                 }
                 QLineEdit:hover {
-                    border: 2px solid #00BFFF;  
+                    border: 2px solid #4a90e2;  
                     background-color: #FFFFFF;  
                 }
+                QLineEdit:focus {
+                    border: 2px solid #4a90e2;
+                    background-color: #FFFFFF;
+                }
             """)
+            # Apply shadow effect
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(10)
+            shadow.setOffset(3, 3)
+            input.setGraphicsEffect(shadow)
         
-        # Set input font
-        font = QFont('Segoe UI', 12, QFont.Normal)
-        self.batch_size_input.setFont(font)
-        self.epochs_input.setFont(font)
-
         form_layout.addWidget(self.batch_size_input, 0, 0)
         form_layout.addWidget(self.epochs_input, 0, 1)
         
@@ -403,7 +425,7 @@ class TrainingApp(QWidget):
         self.start_button = QPushButton('开始训练')
         self.stop_button = QPushButton('停止训练')
         self.load_file_button=QPushButton("加载文件")
-        self.test_button = QPushButton('测试')
+        self.test_button = QPushButton('文件测试')
         # Button Icons
         self.start_button.setIcon(QIcon('start.png'))  
         self.stop_button.setIcon(QIcon('stop.png'))  
@@ -415,26 +437,26 @@ class TrainingApp(QWidget):
         for button in [self.start_button, self.stop_button, self.test_button,self.load_file_button]:
             button.setFixedHeight(self.height() // 10)
             button.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #4a90e2;
-                        border-radius: 10px; 
-                        border: 1px solid gray; 
-                    }
-                    QPushButton:hover {
-                        background-color: #357ABD; 
-                    }
-                    QPushButton:pressed {
-                        background-color: #2a68a3;
-                    }
-                """)
-            
-        # Set button font
-        font = QFont('Segoe UI', 12, QFont.Bold)
-        self.start_button.setFont(font)
-        self.stop_button.setFont(font)
-        self.load_file_button.setFont(font)
-        self.test_button.setFont(font)
-        
+                QPushButton { 
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ADD8E6, stop:1 #87CEFA);
+                    border-radius: 10px;
+                    border: 1px solid #ADD8E6;
+                    padding: 8px;
+                    text-align: center;
+                    font-size: 24px;
+                }
+                QPushButton:hover {
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #87CEFA, stop:1 #ADD8E6);
+                }
+                QPushButton:pressed {
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #B0E0E6, stop:1 #ADD8E6); /* Light blue gradient */
+                }
+            """)
+            # Apply shadow effect
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(10)
+            shadow.setOffset(3, 3)
+            button.setGraphicsEffect(shadow)       
 
         self.start_button.clicked.connect(self.start_training)
         self.stop_button.clicked.connect(self.stop_training)
@@ -454,11 +476,13 @@ class TrainingApp(QWidget):
                 QTextEdit {
                     border-radius: 10px;
                     border: 3px solid black;
-                    background-color: transparent;
+                    background-color: #f0f0f0;
                     padding: 5px;
+                    color: #333;
                 }
             """)
         self.output_window.setReadOnly(True)
+        
         # Set the font for the output window
         output_font = QFont('Segoe UI', 12, QFont.Bold)
         self.output_window.setFont(output_font)
@@ -479,11 +503,24 @@ class TrainingApp(QWidget):
                 border-radius: 10px;                        
             }
         """)
+        # Apply shadow effect to progress bar
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(10)
+        shadow.setOffset(3, 3)
+        self.progress_bar.setGraphicsEffect(shadow)
+
         # Custom text at the bottom
         self.custom_text = QLabel("Designed by CJLU")
         self.custom_text.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         font=QFont('Comic Sans MS',10,QFont.Medium,italic=True)
         self.custom_text.setFont(font)
+
+        # Apply shadow effect to the custom text
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(10)
+        shadow.setOffset(2, 2)
+        shadow.setColor(Qt.black)  # Set shadow color to gray for a more realistic 3D effect
+        self.custom_text.setGraphicsEffect(shadow)
 
 
         # Connect signals and slots for batch size
@@ -587,18 +624,6 @@ class TrainingApp(QWidget):
         
         # Output the device info to the output window
         self.output_window.append(device_info)
-        
-        self.output_window.setStyleSheet("""
-                QTextEdit {
-                    border-radius: 10px;
-                    border: 3px solid black;
-                    background-color: transparent;
-                    padding: 5px;
-                }
-            """)
-        # Set the font for the output window
-        output_font = QFont('Segoe UI', 12, QFont.Bold)
-        self.output_window.setFont(output_font)
 
     def update_output_window(self, text):
         self.output_window.append(text)
