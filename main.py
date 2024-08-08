@@ -305,7 +305,7 @@ class TrainingApp(QWidget):
         self.progress_bar.setValue(0)
 
     def initUI(self):
-        self.setWindowTitle('Raman App')
+        self.setWindowTitle('Raman')
 
         # Set window icon
         self.setWindowIcon(QIcon('1.ico'))
