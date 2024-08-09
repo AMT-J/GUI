@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QGridLayout, QP
                              QLineEdit, QLabel, QProgressBar, QSizePolicy, QHBoxLayout,QFileDialog,QSlider,QFrame,QGraphicsDropShadowEffect)
 from PyQt5.QtGui import QIcon,QTextCursor,QFont
 from tensorflow.keras.layers import Layer
-from tensorflow.keras.optimizers.schedules import ExponentialDecay
 # Set TensorFlow logging level to ERROR to suppress warnings
 # Ensure sys.stdout and sys.stderr are not None
 if sys.stdout is None:
@@ -172,29 +171,25 @@ class TrainThread(QThread):
             
             tf.keras.backend.clear_session()
 
-            # Calculate the number of steps per epoch
-            steps_per_epoch = Xtrain.shape[0] // self.batch_size
-            if Xtrain.shape[0] % self.batch_size != 0:
-                steps_per_epoch += 1
-
-            # Calculate the total number of steps
-            total_steps = steps_per_epoch * self.epochs
-
-            # Adjust decay_steps based on the total number of steps
-            decay_steps = total_steps
+            # Set initial learning rate
             initial_learning_rate = 0.01
-            lr_schedule = ExponentialDecay(
-                initial_learning_rate=initial_learning_rate,
-                decay_steps=decay_steps,
-                decay_rate=0.95,
-                staircase=True
+
+            # Create an instance of the Adam optimizer
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=initial_learning_rate,  # Initial learning rate for Adam optimizer
+                beta_1=0.9,  # Exponential decay rate for the first moment estimates
+                beta_2=0.999,  # Exponential decay rate for the second moment estimates
+                epsilon=1e-7  # Smoothing term to prevent division by zero
             )
 
+            # Create an instance of the model
             model = SSPmodel((2, None, 1))
+
+            # Compile the model
             model.compile(
-                optimizer=tf.keras.optimizers.SGD(learning_rate=lr_schedule),
-                loss='binary_crossentropy',
-                metrics=['accuracy']
+                optimizer=optimizer,
+                loss='binary_crossentropy',  # Loss function for binary classification
+                metrics=['accuracy']  # Metrics to evaluate during training
             )
 
             class ProgressCallback(tf.keras.callbacks.Callback):
@@ -614,7 +609,7 @@ class TrainingApp(QWidget):
         self.is_training=False
         msg_box = CustomMessageBox()
         msg_box.setIcon(QMessageBox.Critical)
-        msg_box.setWindowTitle("Data_Error")
+        msg_box.setWindowTitle("Data Error")
         msg_box.setText(f"An error occurred:\n{error_message}")
         msg_box.exec_()
 
