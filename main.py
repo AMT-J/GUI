@@ -151,14 +151,14 @@ class TrainThread(QThread):
     update_progress = pyqtSignal(int)
     update_epoch_metrics = pyqtSignal(float, float) 
     training_complete = pyqtSignal(dict)
+    error_signal = pyqtSignal(str) 
 
     def __init__(self, batch_size, epochs, parent=None):
         super().__init__(parent)
         self.batch_size = batch_size
         self.epochs = epochs
         self._stop_requested = False
-        self._mutex = QMutex()
-        
+        self._mutex = QMutex()        
 
     def run(self):
 
@@ -240,10 +240,9 @@ class TrainThread(QThread):
             self.update_output.emit('Training complete.\nModel saved.')
             self.training_complete.emit(history.history)
         except Exception as e:
-            self.update_output.emit(f'Error: {e}')
+            self.error_signal.emit(str(e)) 
 
         
-
     def stop(self):
         with QMutexLocker(self._mutex):
             self._stop_requested = True
@@ -297,6 +296,8 @@ class TrainingApp(QWidget):
         self.max_batch_size = 100
         self.min_epochs = 1
         self.max_epochs = 1000
+        self.is_training = False
+        self.error_occurred = False
 
         self.initUI()
         self.train_thread = None
@@ -305,7 +306,7 @@ class TrainingApp(QWidget):
         self.progress_bar.setValue(0)
 
     def initUI(self):
-        self.setWindowTitle('Raman')
+        self.setWindowTitle('Raman App')
 
         # Set window icon
         self.setWindowIcon(QIcon('1.ico'))
@@ -576,6 +577,7 @@ class TrainingApp(QWidget):
             pass
 
     def start_training(self):
+        self.error_occurred = False 
         try:
             batch_size = int(self.batch_size_input.text())
             epochs = int(self.epochs_input.text())
@@ -597,23 +599,51 @@ class TrainingApp(QWidget):
         self.stop_button.setEnabled(True)
 
         self.train_thread = TrainThread(batch_size, epochs)
-        self.train_thread.update_output.connect(self.update_output_window)
+        self.train_thread.error_signal.connect(self.handle_error)
+        self.train_thread.update_output.connect(self.update_output_window)  
         self.train_thread.update_progress.connect(self.update_progress_bar)
         self.train_thread.update_epoch_metrics.connect(self.update_epoch_metrics)
         self.train_thread.training_complete.connect(self.on_training_complete)
 
-        self.train_thread.start()
+        if not self.error_occurred:
+            self.is_training = True
+            self.train_thread.start()
+
+    def handle_error(self, error_message):
+        self.error_occurred = True
+        self.is_training=False
+        msg_box = CustomMessageBox()
+        msg_box.setIcon(QMessageBox.Critical)
+        msg_box.setWindowTitle("Data_Error")
+        msg_box.setText(f"An error occurred:\n{error_message}")
+        msg_box.exec_()
+
+        # Re-enable the buttons
+        self.start_button.setEnabled(True)
+        self.test_button.setEnabled(True)
+        self.load_file_button.setEnabled(True)
+        self.stop_button.setEnabled(True)
 
     def stop_training(self):
-        if self.train_thread:
+        if self.is_training:
             self.train_thread.stop()
-            # Re-enable the Start button and disable the Stop button
+            self.is_training = False 
+            # Re-enable the buttons
             self.start_button.setEnabled(True)
             self.test_button.setEnabled(True)
             self.load_file_button.setEnabled(True)
             self.stop_button.setEnabled(True)
             # Reset the progress bar
             self.progress_bar.setValue(0)
+        else:
+            # Create an error message box
+            msg_box = CustomMessageBox()
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("Stop Error")
+            msg_box.setText("Error: No on going training process.")
+            msg_box.setInformativeText("Please ensure that training is in progress.")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
 
     def detect_device(self):
        # Check if GPU is available and set device info accordingly
@@ -624,6 +654,7 @@ class TrainingApp(QWidget):
         
         # Output the device info to the output window
         self.output_window.append(device_info)
+        self.output_window.setTextColor(Qt.black)
 
     def update_output_window(self, text):
         self.output_window.append(text)
@@ -639,11 +670,11 @@ class TrainingApp(QWidget):
         self.output_window.append(metrics)
 
     def on_training_complete(self, history):
+        self.is_training = False 
         # Re-enable the Start button and disable the Stop button
         self.start_button.setEnabled(True)
         self.test_button.setEnabled(True)
         self.load_file_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
         
         self.plot_training_history(history)
         # Reset the progress bar
@@ -802,7 +833,7 @@ class TrainingApp(QWidget):
         axs = axs.flatten()
 
         for i, (labels, sizes) in enumerate(pie_data):
-            wedges, texts, autotexts = axs[i].pie(
+            wedges, _, _ = axs[i].pie(
                 sizes, 
                 autopct='%1.1f%%', 
                 startangle=140,
